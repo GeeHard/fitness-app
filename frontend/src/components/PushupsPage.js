@@ -69,38 +69,32 @@ const PushupsPage = () => {
   };
 
   useEffect(() => {
-    const SCALE = 0.5;
     let interval;
     const processFrame = async () => {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!video || !canvas || processing || video.readyState < 2) return;
+      if (!videoRef.current || !canvasRef.current || processing) return;
       setProcessing(true);
       const off = document.createElement('canvas');
-      off.width = video.videoWidth * SCALE;
-      off.height = video.videoHeight * SCALE;
+      const video = videoRef.current;
+      off.width = video.videoWidth;
+      off.height = video.videoHeight;
       const offCtx = off.getContext('2d');
       offCtx.drawImage(video, 0, 0, off.width, off.height);
       off.toBlob(async blob => {
         const form = new FormData();
         form.append('frame', blob, 'frame.jpg');
         try {
-          const res = await fetch('http://localhost:8000/frame', {
-            method: 'POST',
-            body: form
-          });
+          const res = await fetch('http://localhost:8000/frame', { method: 'POST', body: form });
           const data = await res.json();
           setAngles(data.angles);
           if (data.landmarks.length) drawLandmarks(data.landmarks);
         } catch (e) {
           console.error(e);
-        } finally {
-          setProcessing(false);
         }
-      }, 'image/jpeg', 0.6);
+        setProcessing(false);
+      }, 'image/jpeg');
     };
     if ((mode === 'live' && stream) || mode === 'file') {
-      interval = setInterval(processFrame, 100);
+      interval = setInterval(processFrame, 200);
     }
     return () => clearInterval(interval);
   }, [mode, stream, processing]);
