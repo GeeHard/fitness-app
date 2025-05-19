@@ -13,6 +13,7 @@ const PushupsPage = () => {
   const [mode, setMode] = useState('live');
   const [stream, setStream] = useState(null);
   const [angles, setAngles] = useState({});
+  const landmarksRef = useRef([]);
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
@@ -68,6 +69,18 @@ const PushupsPage = () => {
     });
   };
 
+  // Continuous drawing loop: render latest landmarks overlay on video
+  useEffect(() => {
+    const drawLoop = () => {
+      if (videoRef.current && canvasRef.current) {
+        drawLandmarks(landmarksRef.current);
+      }
+      requestAnimationFrame(drawLoop);
+    };
+    requestAnimationFrame(drawLoop);
+  }, []);
+
+  // Fetch and process frames at interval
   useEffect(() => {
     let interval;
     const processFrame = async () => {
@@ -86,11 +99,12 @@ const PushupsPage = () => {
           const res = await fetch('http://localhost:8000/frame', { method: 'POST', body: form });
           const data = await res.json();
           setAngles(data.angles);
-          if (data.landmarks.length) drawLandmarks(data.landmarks);
+          landmarksRef.current = data.landmarks || [];
         } catch (e) {
           console.error(e);
+        } finally {
+          setProcessing(false);
         }
-        setProcessing(false);
       }, 'image/jpeg');
     };
     if ((mode === 'live' && stream) || mode === 'file') {
