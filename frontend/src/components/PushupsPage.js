@@ -1,7 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import './PushupsPage.css';
 
-const LANDMARK_IDX = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28, 31, 32];
 const SKELETON_CONNECTIONS = [
   [11, 23], [12, 24], [11, 12], [23, 24], [23, 25], [24, 26],
   [25, 27], [26, 28], [11, 13], [12, 14], [13, 15], [14, 16],
@@ -28,7 +27,7 @@ const PushupsPage = () => {
         setStream(null);
       }
     }
-  }, [mode]);
+  }, [mode, stream]);
 
   const handleFileChange = e => {
     const file = e.target.files[0];
