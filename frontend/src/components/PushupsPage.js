@@ -17,17 +17,26 @@ const PushupsPage = () => {
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
+    // manage webcam stream on mode change
+    let localStream;
+    let mounted = true;
     if (mode === 'live') {
-      navigator.mediaDevices.getUserMedia({ video: true }).then(s => {
-        setStream(s);
-        if (videoRef.current) videoRef.current.srcObject = s;
-      });
-    } else {
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        setStream(null);
-      }
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(s => {
+          if (!mounted) return;
+          setStream(s);
+          localStream = s;
+          if (videoRef.current) videoRef.current.srcObject = s;
+        })
+        .catch(console.error);
     }
+    return () => {
+      mounted = false;
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+      }
+      setStream(null);
+    };
   }, [mode]);
 
   const handleFileChange = e => {
