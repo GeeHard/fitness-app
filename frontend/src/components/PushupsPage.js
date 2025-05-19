@@ -27,7 +27,7 @@ const PushupsPage = () => {
         setStream(null);
       }
     }
-  }, [mode, stream]);
+  }, [mode]);
 
   const handleFileChange = e => {
     const file = e.target.files[0];
