@@ -15,8 +15,17 @@ const PushupsPage = () => {
   const [angles, setAngles] = useState({});
   const landmarksRef = useRef([]);
   const [processing, setProcessing] = useState(false);
+  // ref for sync processing flag to avoid race conditions
+  const processingRef = useRef(false);
+  // ref to hold object URL for cleanup to prevent memory leaks
+  const objectUrlRef = useRef(null);
 
   useEffect(() => {
+    // reset landmarks and angles when entering file mode
+    if (mode === 'file') {
+      landmarksRef.current = [];
+      setAngles({});
+    }
     // manage webcam stream on mode change
     let localStream;
     let mounted = true;
@@ -42,7 +51,15 @@ const PushupsPage = () => {
   const handleFileChange = e => {
     const file = e.target.files[0];
     if (file && videoRef.current) {
+      // reset previous landmarks and angles
+      landmarksRef.current = [];
+      setAngles({});
+      // revoke previous object URL if any
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+      }
       const url = URL.createObjectURL(file);
+      objectUrlRef.current = url;
       videoRef.current.srcObject = null;
       videoRef.current.src = url;
       videoRef.current.play();
@@ -50,29 +67,35 @@ const PushupsPage = () => {
   };
 
   const drawLandmarks = landmarks => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
     const video = videoRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const canvas = canvasRef.current;
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) return;
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = 'blue';
     ctx.strokeStyle = 'yellow';
     ctx.lineWidth = 2;
+    // draw points
     landmarks.forEach(l => {
-      const x = l.x * canvas.width;
-      const y = l.y * canvas.height;
+      const x = l.x * w;
+      const y = l.y * h;
       ctx.beginPath();
       ctx.arc(x, y, 5, 0, 2 * Math.PI);
       ctx.fill();
     });
+    // optimize skeleton connections with a map lookup
+    const landmarkMap = new Map(landmarks.map(l => [l.idx, l]));
     SKELETON_CONNECTIONS.forEach(([i, j]) => {
-      const p1 = landmarks.find(l => l.idx === i);
-      const p2 = landmarks.find(l => l.idx === j);
+      const p1 = landmarkMap.get(i);
+      const p2 = landmarkMap.get(j);
       if (p1 && p2) {
         ctx.beginPath();
-        ctx.moveTo(p1.x * canvas.width, p1.y * canvas.height);
-        ctx.lineTo(p2.x * canvas.width, p2.y * canvas.height);
+        ctx.moveTo(p1.x * w, p1.y * h);
+        ctx.lineTo(p2.x * w, p2.y * h);
         ctx.stroke();
       }
     });
@@ -89,38 +112,76 @@ const PushupsPage = () => {
     requestAnimationFrame(drawLoop);
   }, []);
 
-  // Fetch and process frames at interval
-  useEffect(() => {
-    let interval;
-    const processFrame = async () => {
-      if (!videoRef.current || !canvasRef.current || processing) return;
-      setProcessing(true);
-      const off = document.createElement('canvas');
-      const video = videoRef.current;
-      off.width = video.videoWidth;
-      off.height = video.videoHeight;
-      const offCtx = off.getContext('2d');
-      offCtx.drawImage(video, 0, 0, off.width, off.height);
-      off.toBlob(async blob => {
-        const form = new FormData();
-        form.append('frame', blob, 'frame.jpg');
-        try {
-          const res = await fetch('http://localhost:8000/frame', { method: 'POST', body: form });
-          const data = await res.json();
+  // Configurable performance parameters
+  const UPLOAD_INTERVAL = 200;       // ms between uploads
+  const IMAGE_SCALE = 0.5;           // downscale factor for upload
+  const JPEG_QUALITY = 0.7;          // 0..1 JPEG compression quality
+
+  // Capture a frame, send to backend, and update landmarks/angles
+  const processFrame = async () => {
+    const video = videoRef.current;
+    if (!video || processingRef.current) return;
+    if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
+    // sync flag
+    processingRef.current = true;
+    setProcessing(true);
+    const off = document.createElement('canvas');
+    const sw = Math.round(video.videoWidth * IMAGE_SCALE);
+    const sh = Math.round(video.videoHeight * IMAGE_SCALE);
+    off.width = sw;
+    off.height = sh;
+    const offCtx = off.getContext('2d');
+    offCtx.drawImage(video, 0, 0, sw, sh);
+    off.toBlob(blob => {
+      if (!blob) {
+        processingRef.current = false;
+        setProcessing(false);
+        return;
+      }
+      const form = new FormData();
+      form.append('frame', blob, 'frame.jpg');
+      fetch('http://localhost:8000/frame', { method: 'POST', body: form })
+        .then(async res => {
+          if (!res.ok) throw new Error(`Server error: ${res.status}`);
+          return res.json();
+        })
+        .then(data => {
           setAngles(data.angles);
           landmarksRef.current = data.landmarks || [];
-        } catch (e) {
-          console.error(e);
-        } finally {
+        })
+        .catch(e => console.error('Error processing frame:', e))
+        .finally(() => {
+          processingRef.current = false;
           setProcessing(false);
-        }
-      }, 'image/jpeg');
-    };
-    if ((mode === 'live' && stream) || mode === 'file') {
-      interval = setInterval(processFrame, 200);
+        });
+    }, 'image/jpeg', JPEG_QUALITY);
+  };
+
+  // Trigger frame processing periodically in live mode
+  useEffect(() => {
+    if (mode === 'live' && stream) {
+      const id = setInterval(() => { processFrame(); }, UPLOAD_INTERVAL);
+      return () => clearInterval(id);
     }
-    return () => clearInterval(interval);
-  }, [mode, stream, processing]);
+  }, [mode, stream]);
+
+  // Trigger frame processing periodically in file mode
+  useEffect(() => {
+    if (mode === 'file') {
+      const id = setInterval(() => { processFrame(); }, UPLOAD_INTERVAL);
+      return () => clearInterval(id);
+    }
+  }, [mode]);
+
+  // Cleanup object URL on unmount to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="pushups-page">

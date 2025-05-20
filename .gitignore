@@ -1,16 +1,28 @@
-node_modules/
-frontend/node_modules/
-frontend/build/
-backend/__pycache__/
-backend/pushups.csv
-.env
+# Virtuelle Umgebungen
+.venv/
+venv/
+
+# Bytecode-Dateien
+__pycache__/
+*.py[cod]
+
+# C-Erweiterungen
+*.so
+
+# Logs und temporäre Dateien
+*.log
+*.tmp
+
+# Build-Ordner
+build/
+dist/
+*.egg-info/
+
+# IDE-spezifisch (VS Code, PyCharm usw.)
+.vscode/
+.idea/
+
+# Betriebssystem-spezifisch
 .DS_Store
-__pycache__/
-*.pyc
-build/
-__pycache__/
-*.pyc
-build/
-__pycache__/
-*.pyc
-build/
+Thumbs.db
+

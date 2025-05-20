@@ -19,8 +19,15 @@ def calculate_angle(a, b, c):
 
 class PushupProcessor:
     def __init__(self):
-        self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-        if not os.path.exists(CSV_FILE):
+        # Use lighter pose model for speed
+        self.pose = mp_pose.Pose(
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+            model_complexity=0
+        )
+        # Control CSV logging via env var (default off for performance)
+        self.log_csv = os.getenv('LOG_TO_CSV', 'false').lower() == 'true'
+        if self.log_csv and not os.path.exists(CSV_FILE):
             with open(CSV_FILE, mode='w', newline='') as f:
                 writer = csv.writer(f)
                 header = []
@@ -32,7 +39,17 @@ class PushupProcessor:
     def process(self, image_bytes):
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        # Convert color and optionally downscale for faster processing
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # scale factor via env var IMG_SCALE (default 0.5)
+        scale = float(os.getenv('IMG_SCALE', '0.5'))
+        if scale != 1.0:
+            h, w = img_rgb.shape[:2]
+            img_rgb = cv2.resize(
+                img_rgb,
+                (int(w * scale), int(h * scale)),
+                interpolation=cv2.INTER_LINEAR
+            )
         results = self.pose.process(img_rgb)
         landmarks_out = []
         angles = {}
@@ -50,7 +67,9 @@ class PushupProcessor:
             for pt in landmarks_out:
                 row += [pt['x'], pt['y'], pt['z'], pt['visibility']]
             row += [angles['elbow'], angles['shoulder'], angles['hip'], angles['knee'], angles['ankle']]
-            with open(CSV_FILE, mode='a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(row)
+            # Append to CSV only if enabled (may slow down processing)
+            if self.log_csv:
+                with open(CSV_FILE, mode='a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(row)
         return landmarks_out, angles
