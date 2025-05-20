@@ -19,6 +19,9 @@ const PushupsPage = () => {
   const processingRef = useRef(false);
   // ref to hold object URL for cleanup to prevent memory leaks
   const objectUrlRef = useRef(null);
+  // video duration and current play time for file-mode controls
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {
     // reset landmarks and angles when entering file mode
@@ -183,6 +186,45 @@ const PushupsPage = () => {
     };
   }, []);
 
+  // Dynamically adjust aspect ratio of video and overlay to fit container
+  useEffect(() => {
+    const updateVideoSize = () => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (video && video.videoWidth && video.videoHeight) {
+        const ratio = video.videoWidth / video.videoHeight;
+        video.style.aspectRatio = `${ratio}`;
+        if (canvas) canvas.style.aspectRatio = `${ratio}`;
+      }
+    };
+    const videoEl = videoRef.current;
+    if (mode === 'file' && videoEl) {
+      videoEl.onloadedmetadata = updateVideoSize;
+    }
+    let interval;
+    if (mode === 'live' && stream) {
+      interval = setInterval(updateVideoSize, 500);
+    }
+    return () => {
+      if (videoEl) videoEl.onloadedmetadata = null;
+      if (interval) clearInterval(interval);
+    };
+  }, [mode, stream]);
+
+  // handle video metadata and time updates in file mode for playback controls
+  useEffect(() => {
+    const video = videoRef.current;
+    if (mode !== 'file' || !video) return;
+    const onLoaded = () => setVideoDuration(video.duration);
+    const onTimeUpdate = () => setCurrentTime(video.currentTime);
+    video.addEventListener('loadedmetadata', onLoaded);
+    video.addEventListener('timeupdate', onTimeUpdate);
+    return () => {
+      video.removeEventListener('loadedmetadata', onLoaded);
+      video.removeEventListener('timeupdate', onTimeUpdate);
+    };
+  }, [mode]);
+
   return (
     <div className="pushups-page">
       <div className="controls">
@@ -194,9 +236,33 @@ const PushupsPage = () => {
         <video ref={videoRef} className="video" autoPlay muted playsInline />
         <canvas ref={canvasRef} className="overlay" />
       </div>
+      {mode === 'file' && (
+        <div className="file-controls">
+          <button onClick={() => {
+            if (videoRef.current) {
+              videoRef.current.currentTime = 0;
+              videoRef.current.play();
+            }
+          }}>
+            Wiederholen
+          </button>
+          <input
+            type="range"
+            min="0"
+            max={videoDuration}
+            step="0.1"
+            value={currentTime}
+            onChange={e => {
+              const t = parseFloat(e.target.value);
+              if (videoRef.current) videoRef.current.currentTime = t;
+            }}
+            style={{ width: '100%' }}
+          />
+        </div>
+      )}
       <div className="angles-container">
         <textarea
-          rows={3}
+          rows={5}
           readOnly
           value={
             `Elbow: ${angles.elbow?.toFixed(2) || ''}\n` +
