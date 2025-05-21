@@ -14,7 +14,6 @@ const PushupsPage = () => {
   const [stream, setStream] = useState(null);
   const [angles, setAngles] = useState({});
   const landmarksRef = useRef([]);
-  const [processing, setProcessing] = useState(false);
   // ref for sync processing flag to avoid race conditions
   const processingRef = useRef(false);
   // ref to hold object URL for cleanup to prevent memory leaks
@@ -22,6 +21,89 @@ const PushupsPage = () => {
   // video duration and current play time for file-mode controls
   const [videoDuration, setVideoDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  // recording state and references for MediaRecorder
+  const [isRecording, setIsRecording] = useState(false);
+  const recorderRef = useRef(null);
+  const recordedChunksRef = useRef([]);
+  const startTimeRef = useRef(null);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const timeIntervalRef = useRef(null);
+
+  // format seconds to mm:ss
+  const formatTime = time => {
+    const total = Math.floor(time);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  };
+  // cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timeIntervalRef.current) clearInterval(timeIntervalRef.current);
+    };
+  }, []);
+  // load greeting text from backend
+  const [greeting, setGreeting] = useState('');
+  useEffect(() => {
+    fetch('http://localhost:8000/greeting')
+      .then(res => res.json())
+      .then(data => setGreeting(data.text || ''))
+      .catch(err => console.error('Error loading greeting:', err));
+  }, []);
+  // handlers to start and stop recording the raw camera stream
+  const handleStartRecording = () => {
+    if (!stream) return;
+    // reset recorded data and timer
+    recordedChunksRef.current = [];
+    setRecordingTime(0);
+    startTimeRef.current = Date.now();
+    timeIntervalRef.current = setInterval(() => {
+      setRecordingTime((Date.now() - startTimeRef.current) / 1000);
+    }, 100);
+    // choose supported mime type, prefer MP4
+    let options = {};
+    if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.42E01E"')) {
+      options = { mimeType: 'video/mp4; codecs="avc1.42E01E"' };
+    } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+      options = { mimeType: 'video/mp4' };
+    } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp9')) {
+      options = { mimeType: 'video/webm; codecs=vp9' };
+    } else if (MediaRecorder.isTypeSupported('video/webm')) {
+      options = { mimeType: 'video/webm' };
+    }
+    const mediaRecorder = new MediaRecorder(stream, options);
+    recorderRef.current = mediaRecorder;
+    mediaRecorder.ondataavailable = e => {
+      if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+    };
+    mediaRecorder.onstop = () => {
+      clearInterval(timeIntervalRef.current);
+      const finalType = mediaRecorder.mimeType || options.mimeType;
+      const blob = new Blob(recordedChunksRef.current, { type: finalType });
+      const ext = finalType.includes('mp4') ? 'mp4' : 'webm';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `pushups_recording.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+    };
+    mediaRecorder.start();
+    setIsRecording(true);
+  };
+
+  const handleStopRecording = () => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+    }
+    clearInterval(timeIntervalRef.current);
+    setIsRecording(false);
+  };
 
   useEffect(() => {
     // reset landmarks and angles when entering file mode
@@ -127,7 +209,6 @@ const PushupsPage = () => {
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
     // sync flag
     processingRef.current = true;
-    setProcessing(true);
     const off = document.createElement('canvas');
     const sw = Math.round(video.videoWidth * IMAGE_SCALE);
     const sh = Math.round(video.videoHeight * IMAGE_SCALE);
@@ -138,7 +219,6 @@ const PushupsPage = () => {
     off.toBlob(blob => {
       if (!blob) {
         processingRef.current = false;
-        setProcessing(false);
         return;
       }
       const form = new FormData();
@@ -155,7 +235,6 @@ const PushupsPage = () => {
         .catch(e => console.error('Error processing frame:', e))
         .finally(() => {
           processingRef.current = false;
-          setProcessing(false);
         });
     }, 'image/jpeg', JPEG_QUALITY);
   };
@@ -231,6 +310,18 @@ const PushupsPage = () => {
         <button onClick={() => setMode('live')} disabled={mode === 'live'}>Live</button>
         <button onClick={() => setMode('file')} disabled={mode === 'file'}>File</button>
         {mode === 'file' && <input type="file" accept="video/mp4,video/mov" onChange={handleFileChange} />}
+        {mode === 'live' && (
+          <>
+            <button onClick={isRecording ? handleStopRecording : handleStartRecording}>
+              {isRecording ? 'Stop Recording' : 'Start Recording'}
+            </button>
+            {isRecording && (
+              <span className="recording-timer">
+                {formatTime(recordingTime)}
+              </span>
+            )}
+          </>
+        )}
       </div>
       <div className="video-container">
         <video ref={videoRef} className="video" autoPlay muted playsInline />
@@ -260,8 +351,9 @@ const PushupsPage = () => {
           />
         </div>
       )}
-      <div className="angles-container">
+      <div className="info-row">
         <textarea
+          className="angles-text"
           rows={5}
           readOnly
           value={
@@ -271,6 +363,12 @@ const PushupsPage = () => {
             `Knee: ${angles.knee?.toFixed(2) || ''}\n` +
             `Ankle: ${angles.ankle?.toFixed(2) || ''}`
           }
+        />
+        <textarea
+          className="greeting-text"
+          rows={5}
+          readOnly
+          value={greeting}
         />
       </div>
     </div>

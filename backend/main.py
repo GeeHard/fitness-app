@@ -20,6 +20,11 @@ async def process_frame(frame: UploadFile = File(...)):
     image_bytes = await frame.read()
     landmarks, angles = processor.process(image_bytes)
     return {'landmarks': landmarks, 'angles': angles}
+ 
+@app.get('/greeting')
+async def get_greeting():
+    """Einfacher Endpunkt, um einen Begrüßungstext zu liefern."""
+    return {'text': 'Hallo GeeHard'}
 
 if __name__ == '__main__':
     uvicorn.run('main:app', host='0.0.0.0', port=8000, reload=True)
