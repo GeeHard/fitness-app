@@ -42,14 +42,20 @@ const PushupsPage = () => {
       if (timeIntervalRef.current) clearInterval(timeIntervalRef.current);
     };
   }, []);
-  // load greeting text from backend
+  // greeting text (from backend state_tracker via /frame)
   const [greeting, setGreeting] = useState('');
+  
+  // helper to reset counter state on backend and clear greeting
+  const resetCounter = () => {
+    fetch('http://localhost:8000/reset', { method: 'POST' })
+      .then(() => setGreeting(''))
+      .catch(err => console.error('Error resetting counter:', err));
+  };
+  
+  // reset counter whenever mode changes (live <-> file)
   useEffect(() => {
-    fetch('http://localhost:8000/greeting')
-      .then(res => res.json())
-      .then(data => setGreeting(data.text || ''))
-      .catch(err => console.error('Error loading greeting:', err));
-  }, []);
+    resetCounter();
+  }, [mode]);
   // handlers to start and stop recording the raw camera stream
   const handleStartRecording = () => {
     if (!stream) return;
@@ -148,6 +154,8 @@ const PushupsPage = () => {
       videoRef.current.srcObject = null;
       videoRef.current.src = url;
       videoRef.current.play();
+      // reset repetition counter state for new file
+      resetCounter();
     }
   };
 
@@ -229,8 +237,22 @@ const PushupsPage = () => {
           return res.json();
         })
         .then(data => {
+          // update landmarks and angles overlay
           setAngles(data.angles);
           landmarksRef.current = data.landmarks || [];
+          // update greeting/info text from state tracker fields
+          const reps = data.repetitions ?? '';
+          const seq = Array.isArray(data.state_sequence) ? data.state_sequence.join(', ') : '';
+          const curr = data.current_state ?? '';
+          const prev = data.previous_state ?? '';
+          const imp = data.improper_moves ?? '';
+          const text =
+            `Repetitions: ${reps}\n` +
+            `State sequence: [${seq}]\n` +
+            `Current state: ${curr}\n` +
+            `Previous state: ${prev}\n` +
+            `Improper moves: ${imp}`;
+          setGreeting(text);
         })
         .catch(e => console.error('Error processing frame:', e))
         .finally(() => {
@@ -330,6 +352,8 @@ const PushupsPage = () => {
       {mode === 'file' && (
         <div className="file-controls">
           <button onClick={() => {
+            // reset counter on replay
+            resetCounter();
             if (videoRef.current) {
               videoRef.current.currentTime = 0;
               videoRef.current.play();
