@@ -1,15 +1,34 @@
 .header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
   background-color: blue;
   padding: 10px;
 }
 
 .nav {
   display: flex;
-  gap: 15px;
+  gap: 21px; /* spacing between buttons */
+  /* centered via header justify-content */
 }
 
 .nav-link {
   color: white;
   text-decoration: none;
   font-weight: bold;
+  transition: color 0.2s ease;
+}
+/* change header link text color on hover */
+.nav-link:hover {
+  color: lightblue;
+}
+/* Logo styling */
+.logo {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 30px;
+  width: auto;
 }

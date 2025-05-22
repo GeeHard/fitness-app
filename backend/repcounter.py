@@ -30,11 +30,11 @@ class ProcessStatefromAngle:
     def _get_state(self, joint_angle):
         state = None
         if self.Reps_Count_joint == "Elbow_Angle":
-            if 40 <= joint_angle <=80:
+            if 40 <= joint_angle <=90:
                 state = 1
-            elif 81<= joint_angle <= 100:
+            elif 91<= joint_angle <= 110:
                 state = 2
-            elif 101 <= joint_angle <= 130:
+            elif 111 <= joint_angle <= 130:
                 state = 3
         self.state_tracker['curr_state'] = state if state else 0
         return state if state else 0

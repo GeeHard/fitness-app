@@ -4,6 +4,7 @@ import uvicorn
 
 from pushups import PushupProcessor
 from repcounter import repetition_counter  # Globale Instanz importieren
+from eval import router as eval_router
 
 app = FastAPI()
 app.add_middleware(
@@ -13,6 +14,9 @@ app.add_middleware(
     allow_methods=['*'],
     allow_headers=['*'],
 )
+
+# include evaluation router
+app.include_router(eval_router)
 
 processor = PushupProcessor()
 

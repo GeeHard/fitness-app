@@ -329,9 +329,27 @@ const PushupsPage = () => {
   return (
     <div className="pushups-page">
       <div className="controls">
-        <button onClick={() => setMode('live')} disabled={mode === 'live'}>Live</button>
-        <button onClick={() => setMode('file')} disabled={mode === 'file'}>File</button>
-        {mode === 'file' && <input type="file" accept="video/mp4,video/mov" onChange={handleFileChange} />}
+        <button
+          onClick={() => setMode('live')}
+          disabled={mode === 'live'}
+          className={`mode-btn ${mode === 'live' ? 'active' : ''}`}
+        >
+          Live
+        </button>
+        <button
+          onClick={() => setMode('file')}
+          disabled={mode === 'file'}
+          className={`mode-btn ${mode === 'file' ? 'active' : ''}`}
+        >
+          File
+        </button>
+        {mode === 'file' && (
+          <input
+            type="file"
+            accept=".mp4,.mov"
+            onChange={handleFileChange}
+          />
+        )}
         {mode === 'live' && (
           <>
             <button onClick={isRecording ? handleStopRecording : handleStartRecording}>
