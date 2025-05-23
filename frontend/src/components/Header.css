@@ -23,12 +23,21 @@
 .nav-link:hover {
   color: lightblue;
 }
+/* active link: current page */
+.nav-link.active {
+  color: #b3e5fc;
+}
+/* active link: current page */
+.nav-link.active {
+  color: #b3e5fc;
+}
 /* Logo styling */
 .logo {
   position: absolute;
   left: 10px;
   top: 50%;
-  transform: translateY(-50%);
+  /* shift down by half height and right by its own width */
+  transform: translateX(100%) translateY(-50%);
   height: 30px;
   width: auto;
 }

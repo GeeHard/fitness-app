@@ -84,3 +84,8 @@
 .mode-btn:not(.active):hover {
   background-color: lightblue;
 }
+/* recording timer display next to record button */
+.recording-timer {
+  margin-left: 8px;
+  font-weight: bold;
+}

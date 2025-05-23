@@ -1,4 +1,5 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Body
+import os
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -60,6 +61,17 @@ async def reset_counter():
     """
     repetition_counter.reset()
     return {'status': 'ok'}
+@app.post('/posejs_csv', summary='Save PoseJS CSV on server')
+async def save_posejs_csv(csv_data: str = Body(..., media_type='text/csv')):
+    """
+    Save the uploaded CSV data to PoseJS.csv in the backend folder, overwriting existing file.
+    """
+    # Determine file path in this backend directory
+    file_path = os.path.join(os.path.dirname(__file__), 'PoseJS.csv')
+    # Write CSV data, overwrite if exists
+    with open(file_path, 'w', encoding='utf-8', newline='') as f:
+        f.write(csv_data)
+    return {'status': 'saved', 'path': file_path}
 
 
 if __name__ == '__main__':

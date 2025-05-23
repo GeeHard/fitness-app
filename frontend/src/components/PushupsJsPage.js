@@ -72,6 +72,23 @@ class ProcessStatefromAngle {
 }
 // global instance
 const repetitionCounter = new ProcessStatefromAngle();
+// create or return shared Mediapipe Pose instance to avoid WASM re-initialization
+let sharedPose = null;
+function getPose(onResults) {
+  if (!sharedPose) {
+    sharedPose = new Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+    });
+  }
+  sharedPose.setOptions({
+    modelComplexity: 0,
+    smoothLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5,
+  });
+  sharedPose.onResults(onResults);
+  return sharedPose;
+}
 const PushupsJsPage = () => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -84,8 +101,88 @@ const PushupsJsPage = () => {
   const [stateSeq, setStateSeq] = useState([]);
   const [videoDuration, setVideoDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const fileUrlRef = useRef(null);
-  // reset counter and time tracking when switching mode
+  // selected file URL for file mode
+  const [fileUrl, setFileUrl] = useState(null);
+  // CSV accumulation for file mode
+  const csvRowsRef = useRef([]);
+  const frameIndexRef = useRef(0);
+  // recording state and refs for MediaRecorder
+  const [isRecording, setIsRecording] = useState(false);
+  const recorderRef = useRef(null);
+  const recordedChunksRef = useRef([]);
+  const startTimeRef = useRef(null);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const timeIntervalRef = useRef(null);
+
+  // format seconds to mm:ss
+  const formatTime = time => {
+    const total = Math.floor(time);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  };
+  // cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timeIntervalRef.current) clearInterval(timeIntervalRef.current);
+    };
+  }, []);
+
+  // start recording live video stream
+  const handleStartRecording = () => {
+    const mediaStream = videoRef.current?.srcObject;
+    if (!mediaStream) return;
+    recordedChunksRef.current = [];
+    setRecordingTime(0);
+    startTimeRef.current = Date.now();
+    timeIntervalRef.current = setInterval(() => {
+      setRecordingTime((Date.now() - startTimeRef.current) / 1000);
+    }, 100);
+    let options = {};
+    if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.42E01E"')) {
+      options = { mimeType: 'video/mp4; codecs="avc1.42E01E"' };
+    } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+      options = { mimeType: 'video/mp4' };
+    } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp9')) {
+      options = { mimeType: 'video/webm; codecs=vp9' };
+    } else if (MediaRecorder.isTypeSupported('video/webm')) {
+      options = { mimeType: 'video/webm' };
+    }
+    const mediaRecorder = new MediaRecorder(mediaStream, options);
+    recorderRef.current = mediaRecorder;
+    mediaRecorder.ondataavailable = e => {
+      if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+    };
+    mediaRecorder.onstop = () => {
+      clearInterval(timeIntervalRef.current);
+      const finalType = mediaRecorder.mimeType || options.mimeType;
+      const blob = new Blob(recordedChunksRef.current, { type: finalType });
+      const ext = finalType && finalType.includes('mp4') ? 'mp4' : 'webm';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `PoseJS_recorded.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+    };
+    mediaRecorder.start();
+    setIsRecording(true);
+  };
+
+  // stop recording
+  const handleStopRecording = () => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+    }
+    clearInterval(timeIntervalRef.current);
+    setIsRecording(false);
+  };
+  // reset counter and CSV when mode changes or file changes
   useEffect(() => {
     repetitionCounter.reset();
     setReps(0);
@@ -93,7 +190,32 @@ const PushupsJsPage = () => {
     setStateSeq([]);
     setVideoDuration(0);
     setCurrentTime(0);
-  }, [mode]);
+    // reset CSV accumulation for file mode
+    csvRowsRef.current = [];
+    frameIndexRef.current = 0;
+  }, [mode, fileUrl]);
+  // download CSV on video end
+  const handleDownloadCSV = () => {
+    // build CSV header: frame + landmarks + angles
+    const header = ['frame'];
+    LANDMARK_IDX.forEach(idx => {
+      header.push(`x${idx}`, `y${idx}`, `z${idx}`, `v${idx}`);
+    });
+    header.push('elbow', 'shoulder', 'hip', 'knee', 'ankle');
+    const rows = [header, ...csvRowsRef.current];
+    const csvContent = rows.map(r => r.join(',')).join('\n');
+    // send CSV to backend for saving
+    fetch('http://localhost:8000/posejs_csv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv' },
+      body: csvContent
+    })
+    .then(res => {
+      if (!res.ok) console.error('Failed to save CSV:', res.status);
+      else console.log('PoseJS.csv saved on server');
+    })
+    .catch(err => console.error('Error sending CSV to server:', err));
+  };
   // handle file-mode video metadata and time updates
   // handle file-mode video metadata and time updates: also trigger pose process on seek
   useEffect(() => {
@@ -102,19 +224,23 @@ const PushupsJsPage = () => {
       const onLoaded = () => setVideoDuration(video.duration);
       const onTimeUpdate = () => setCurrentTime(video.currentTime);
       const onSeeked = () => {
-        // process current frame on seek
-        if (poseRef.current) poseRef.current.send({ image: video });
+        // process current frame on seek when ready
+        if (!poseRef.current) return;
+        if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
+        poseRef.current.send({ image: video });
       };
       video.addEventListener('loadedmetadata', onLoaded);
       video.addEventListener('timeupdate', onTimeUpdate);
       video.addEventListener('seeked', onSeeked);
+      video.addEventListener('ended', handleDownloadCSV);
       return () => {
         video.removeEventListener('loadedmetadata', onLoaded);
         video.removeEventListener('timeupdate', onTimeUpdate);
         video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('ended', handleDownloadCSV);
       };
     }
-  }, [mode]);
+  }, [mode, fileUrl]);
 
   const getAngle = (a, b, c) => {
     const ab = { x: a.x - b.x, y: a.y - b.y };
@@ -132,19 +258,8 @@ const PushupsJsPage = () => {
     const videoElement = videoRef.current;
     const canvasElement = canvasRef.current;
     const ctx = canvasElement.getContext('2d');
-
-    const pose = new Pose({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
-    });
-    // store pose instance for seeking processing
-    poseRef.current = pose;
-    pose.setOptions({
-      modelComplexity: 0,
-      smoothLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-    pose.onResults((results) => {
+    // initialize or reuse Pose instance
+    const pose = getPose((results) => {
       if (!results.poseLandmarks) return;
       canvasElement.width = videoElement.videoWidth;
       canvasElement.height = videoElement.videoHeight;
@@ -185,6 +300,23 @@ const PushupsJsPage = () => {
         knee: getAngle(lm[24], lm[26], lm[28]),
         ankle: getAngle(lm[26], lm[28], lm[32]),
       };
+      // accumulate landmarks and angles per frame in file mode
+      if (mode === 'file') {
+        frameIndexRef.current += 1;
+        const row = [frameIndexRef.current];
+        LANDMARK_IDX.forEach(idx => {
+          const l = fullLm[idx];
+          row.push(l.x, l.y, l.z, l.visibility);
+        });
+        row.push(
+          newAngles.elbow,
+          newAngles.shoulder,
+          newAngles.hip,
+          newAngles.knee,
+          newAngles.ankle
+        );
+        csvRowsRef.current.push(row);
+      }
       setAngles(newAngles);
       // update rep counter with new elbow angle
       const newCount = repetitionCounter.update(newAngles.elbow);
@@ -193,6 +325,8 @@ const PushupsJsPage = () => {
       setCurrState(repetitionCounter.state_tracker.curr_state);
       setStateSeq([...repetitionCounter.state_tracker.state_seq]);
     });
+    // store pose instance for seeking processing
+    poseRef.current = pose;
 
     let camera;
     if (mode === 'live') {
@@ -205,7 +339,12 @@ const PushupsJsPage = () => {
     } else {
       let rafId;
       const onPlay = async () => {
+        // wait until video has data
         if (videoElement.paused || videoElement.ended) return;
+        if (videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+          rafId = requestAnimationFrame(onPlay);
+          return;
+        }
         await pose.send({ image: videoElement });
         rafId = requestAnimationFrame(onPlay);
       };
@@ -218,24 +357,31 @@ const PushupsJsPage = () => {
     return () => {
       if (camera) camera.stop();
     };
-  }, [mode]);
+  }, [mode, fileUrl]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
+    // revoke old URL
+    if (fileUrl) URL.revokeObjectURL(fileUrl);
     const url = URL.createObjectURL(file);
-    fileUrlRef.current = url;
+    setFileUrl(url);
     const video = videoRef.current;
-    video.srcObject = null;
-    video.src = url;
+    // assign new video URL
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+      videoRef.current.src = url;
+    }
     video.play();
-    // reset repetition counter for new video
+    // reset repetition counter and Pose state for new video
     repetitionCounter.reset();
     setReps(0);
     setCurrState(0);
     setStateSeq([]);
     setAngles({});
+    if (poseRef.current && typeof poseRef.current.reset === 'function') {
+      poseRef.current.reset();
+    }
   };
 
   return (
@@ -261,6 +407,18 @@ const PushupsJsPage = () => {
             accept=".mp4,.mov"
             onChange={handleFileChange}
           />
+        )}
+        {mode === 'live' && (
+          <>
+            <button onClick={isRecording ? handleStopRecording : handleStartRecording}>
+              {isRecording ? 'Stop Recording' : 'Start Recording'}
+            </button>
+            {isRecording && (
+              <span className="recording-timer">
+                {formatTime(recordingTime)}
+              </span>
+            )}
+          </>
         )}
       </div>
       <div className="video-container">
