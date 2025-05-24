@@ -2,22 +2,70 @@ import React, { useEffect, useState } from 'react';
 
 const EvalPage = () => {
   const [message, setMessage] = useState('');
+  const [plotImage, setPlotImage] = useState('');
+  const [csvFiles, setCsvFiles] = useState([]);
+  const [selectedFile, setSelectedFile] = useState('');
 
+  // Fetch list of available CSV files on mount
   useEffect(() => {
-    fetch('http://localhost:8000/eval')
+    fetch('/csv_files')
       .then(res => res.json())
-      .then(data => setMessage(data.message))
-      .catch(err => console.error('Error fetching eval message:', err));
+      .then(data => setCsvFiles(Array.isArray(data.files) ? data.files : []))
+      .catch(err => console.error('Error fetching CSV files:', err));
   }, []);
+
+  // Fetch evaluation message and plot based on selected CSV (or default)
+  useEffect(() => {
+    const query = selectedFile ? `?filename=${encodeURIComponent(selectedFile)}` : '';
+    fetch(`/eval${query}`)
+      .then(res => res.json())
+      .then(data => setMessage(data.message || data.error || ''))
+      .catch(err => console.error('Error fetching eval message:', err));
+
+    fetch(`/plot_image${query}`)
+      .then(res => res.json())
+      .then(data => setPlotImage(data.image_base64 || ''))
+      .catch(err => console.error('Error fetching plot image:', err));
+  }, [selectedFile]);
 
   return (
     <div className="eval-page" style={{ padding: '20px' }}>
+      <div style={{ marginBottom: '10px' }}>
+        <label htmlFor="csv-select">
+          Auswahl CSV Datei:{' '}
+          <select
+            id="csv-select"
+            value={selectedFile}
+            onChange={e => setSelectedFile(e.target.value)}
+          >
+            <option value="">Default ({csvFiles.includes('pushups.csv') ? 'pushups.csv' : ''})</option>
+            {csvFiles.map(f => (
+              <option key={f} value={f}>{f}</option>
+            ))}
+          </select>
+        </label>
+      </div>
       <textarea
-        rows={5}
+        rows={10}
         readOnly
-        style={{ width: '100%', fontSize: '16px' }}
+        style={{
+          width: '100%',
+          fontSize: '16px',
+          whiteSpace: 'pre',     // preserve text, disable wrapping
+          overflowX: 'auto',     // horizontal scrollbar when needed
+          overflowY: 'scroll',   // always show vertical scrollbar
+        }}
         value={message || 'Loading...'}
       />
+      {plotImage && (
+        <div style={{ padding: '20px' }}>
+          <img
+            src={`data:image/png;base64,${plotImage}`}
+            alt="Plot"
+            style={{ width: '100%' }}
+          />
+        </div>
+      )}
     </div>
   );
 };

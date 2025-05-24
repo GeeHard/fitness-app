@@ -3,7 +3,7 @@ import os
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from pushups import PushupProcessor
+from pushups import PushupProcessor, CSV_FILE
 from repcounter import repetition_counter  # Globale Instanz importieren
 from eval import router as eval_router
 
@@ -72,6 +72,21 @@ async def save_posejs_csv(csv_data: str = Body(..., media_type='text/csv')):
     with open(file_path, 'w', encoding='utf-8', newline='') as f:
         f.write(csv_data)
     return {'status': 'saved', 'path': file_path}
+    
+@app.post('/clear_pushups_csv', summary='Clear pushups CSV file')
+async def clear_pushups_csv():
+    """
+    Delete the existing pushups CSV file before processing a new video.
+    """
+    # Determine file path in this backend directory
+    file_path = os.path.join(os.path.dirname(__file__), CSV_FILE)
+    try:
+        os.remove(file_path)
+        return {'status': 'deleted', 'path': file_path}
+    except FileNotFoundError:
+        return {'status': 'not_found', 'path': file_path}
+    except Exception as e:
+        return {'error': str(e)}
 
 
 if __name__ == '__main__':

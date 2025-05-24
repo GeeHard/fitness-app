@@ -35,23 +35,8 @@ class PushupProcessor:
             model_complexity=0
         )
         
-        # Control CSV logging via env var (default off for performance)
-        self.log_csv = os.getenv('LOG_TO_CSV', 'false').lower() == 'true'
-        
         # initialize frame counter
         self.frame_index = 0
-        
-        # On startup (each run), overwrite existing CSV if logging enabled
-        if self.log_csv:
-            # write header, first column is frame index
-            with open(CSV_FILE, mode='w', newline='') as f:
-                writer = csv.writer(f)
-                # header: frame index + landmark coords + angle columns
-                header = ['frame']
-                for idx in LANDMARK_IDX:
-                    header += [f'x{idx}', f'y{idx}', f'z{idx}', f'v{idx}']
-                header += ['elbow', 'shoulder', 'hip', 'knee', 'ankle']
-                writer.writerow(header)
 
     def process(self, image_bytes):
         
@@ -85,17 +70,26 @@ class PushupProcessor:
             angles['ankle'] = calculate_angle(lm[26], lm[28], lm[32])
             
             # prepare CSV row: frame index + flattened landmarks + angles
+            # Update frame counter and prepare row data
             self.frame_index += 1
             row = [self.frame_index]
             for pt in landmarks_out:
                 row += [pt['x'], pt['y'], pt['z'], pt['visibility']]
             row += [angles['elbow'], angles['shoulder'], angles['hip'], angles['knee'], angles['ankle']]
             
-            # Append to CSV only if enabled (may slow down processing)
-            if self.log_csv:
-                with open(CSV_FILE, mode='a', newline='') as f:
+            # On first data row, write header
+            if self.frame_index == 1:
+                with open(CSV_FILE, mode='w', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(row)
+                    header = ['frame']
+                    for idx in LANDMARK_IDX:
+                        header += [f'x{idx}', f'y{idx}', f'z{idx}', f'v{idx}']
+                    header += ['elbow', 'shoulder', 'hip', 'knee', 'ankle']
+                    writer.writerow(header)
+            # Append current row
+            with open(CSV_FILE, mode='a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(row)
         return landmarks_out, angles
     
 

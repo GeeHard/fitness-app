@@ -72,7 +72,7 @@ class ProcessStatefromAngle {
 }
 // global instance
 const repetitionCounter = new ProcessStatefromAngle();
-// create or return shared Mediapipe Pose instance to avoid WASM re-initialization
+// singleton Mediapipe Pose instance
 let sharedPose = null;
 function getPose(onResults) {
   if (!sharedPose) {
@@ -258,27 +258,23 @@ const PushupsJsPage = () => {
     const videoElement = videoRef.current;
     const canvasElement = canvasRef.current;
     const ctx = canvasElement.getContext('2d');
-    // initialize or reuse Pose instance
-    const pose = getPose((results) => {
+    // Shared result handler: draw landmarks, compute angles and reps
+    const handleResults = (results) => {
       if (!results.poseLandmarks) return;
       canvasElement.width = videoElement.videoWidth;
       canvasElement.height = videoElement.videoHeight;
       ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      // draw only selected landmarks and connections
       const w = videoElement.videoWidth;
       const h = videoElement.videoHeight;
-      const fullLm = results.poseLandmarks;
-      // map selected landmarks
-      const landmarkMap = new Map(LANDMARK_IDX.map(i => [i, fullLm[i]]));
+      const lmFull = results.poseLandmarks;
+      const landmarkMap = new Map(LANDMARK_IDX.map(i => [i, lmFull[i]]));
       ctx.fillStyle = 'blue';
       ctx.strokeStyle = 'yellow';
       ctx.lineWidth = 2;
       // draw points
       landmarkMap.forEach(l => {
-        const x = l.x * w;
-        const y = l.y * h;
         ctx.beginPath();
-        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+        ctx.arc(l.x * w, l.y * h, 5, 0, 2 * Math.PI);
         ctx.fill();
       });
       // draw connections
@@ -292,56 +288,49 @@ const PushupsJsPage = () => {
           ctx.stroke();
         }
       });
-      const lm = fullLm;
+      // compute angles
       const newAngles = {
-        elbow: getAngle(lm[12], lm[14], lm[16]),
-        shoulder: getAngle(lm[24], lm[12], lm[14]),
-        hip: getAngle(lm[12], lm[24], lm[26]),
-        knee: getAngle(lm[24], lm[26], lm[28]),
-        ankle: getAngle(lm[26], lm[28], lm[32]),
+        elbow: getAngle(lmFull[12], lmFull[14], lmFull[16]),
+        shoulder: getAngle(lmFull[24], lmFull[12], lmFull[14]),
+        hip: getAngle(lmFull[12], lmFull[24], lmFull[26]),
+        knee: getAngle(lmFull[24], lmFull[26], lmFull[28]),
+        ankle: getAngle(lmFull[26], lmFull[28], lmFull[32]),
       };
-      // accumulate landmarks and angles per frame in file mode
+      // accumulate CSV row in file mode
       if (mode === 'file') {
         frameIndexRef.current += 1;
         const row = [frameIndexRef.current];
         LANDMARK_IDX.forEach(idx => {
-          const l = fullLm[idx];
-          row.push(l.x, l.y, l.z, l.visibility);
+          const l = lmFull[idx]; row.push(l.x, l.y, l.z, l.visibility);
         });
-        row.push(
-          newAngles.elbow,
-          newAngles.shoulder,
-          newAngles.hip,
-          newAngles.knee,
-          newAngles.ankle
-        );
+        row.push(newAngles.elbow, newAngles.shoulder, newAngles.hip, newAngles.knee, newAngles.ankle);
         csvRowsRef.current.push(row);
       }
       setAngles(newAngles);
-      // update rep counter with new elbow angle
-      const newCount = repetitionCounter.update(newAngles.elbow);
-      setReps(newCount);
-      // update current state and state sequence for display
+      const r = repetitionCounter.update(newAngles.elbow);
+      setReps(r);
       setCurrState(repetitionCounter.state_tracker.curr_state);
       setStateSeq([...repetitionCounter.state_tracker.state_seq]);
-    });
-    // store pose instance for seeking processing
-    poseRef.current = pose;
-
-    let camera;
+    };
+    // Branch by mode: live uses sharedPose + camera; file uses fresh Pose + play loop
     if (mode === 'live') {
-      camera = new Camera(videoElement, {
+      // live mode: use sharedPose + Camera
+      const pose = getPose(handleResults);
+      poseRef.current = pose;
+      const camera = new Camera(videoElement, {
         onFrame: async () => { await pose.send({ image: videoElement }); },
-        width: 640,
-        height: 480,
+        width: 640, height: 480,
       });
       camera.start();
+      return () => { camera.stop(); };
     } else {
+      // file mode: use sharedPose + manual play-driven loop
+      const pose = getPose(handleResults);
+      poseRef.current = pose;
       let rafId;
       const onPlay = async () => {
-        // wait until video has data
         if (videoElement.paused || videoElement.ended) return;
-        if (videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+        if (videoElement.readyState < 2) {
           rafId = requestAnimationFrame(onPlay);
           return;
         }
@@ -354,31 +343,29 @@ const PushupsJsPage = () => {
         if (rafId) cancelAnimationFrame(rafId);
       };
     }
-    return () => {
-      if (camera) camera.stop();
-    };
   }, [mode, fileUrl]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    // revoke old URL
+    // revoke old URL if any
     if (fileUrl) URL.revokeObjectURL(fileUrl);
+    // create and set new object URL
     const url = URL.createObjectURL(file);
     setFileUrl(url);
     const video = videoRef.current;
-    // assign new video URL
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-      videoRef.current.src = url;
+    if (video) {
+      video.srcObject = null;
+      video.src = url;
+      video.play();
     }
-    video.play();
-    // reset repetition counter and Pose state for new video
+    // reset repetition counter and states for new video
     repetitionCounter.reset();
     setReps(0);
     setCurrState(0);
     setStateSeq([]);
     setAngles({});
+    // reset Pose state if supported
     if (poseRef.current && typeof poseRef.current.reset === 'function') {
       poseRef.current.reset();
     }

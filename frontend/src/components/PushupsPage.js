@@ -139,7 +139,7 @@ const PushupsPage = () => {
     };
   }, [mode]);
 
-  const handleFileChange = e => {
+  const handleFileChange = async e => {
     const file = e.target.files[0];
     if (file && videoRef.current) {
       // reset previous landmarks and angles
@@ -153,7 +153,13 @@ const PushupsPage = () => {
       objectUrlRef.current = url;
       videoRef.current.srcObject = null;
       videoRef.current.src = url;
-      videoRef.current.play();
+        videoRef.current.play();
+        // clear existing pushups CSV on server
+        try {
+          await fetch('http://localhost:8000/clear_pushups_csv', { method: 'POST' });
+        } catch (err) {
+          console.error('Error clearing pushups CSV:', err);
+        }
       // reset repetition counter state for new file
       resetCounter();
     }
