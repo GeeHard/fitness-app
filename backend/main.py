@@ -6,6 +6,7 @@ import uvicorn
 from pushups import PushupProcessor, CSV_FILE
 from repcounter import repetition_counter  # Globale Instanz importieren
 from eval import router as eval_router
+from trainer_chat import router as trainer_chat_router
 
 app = FastAPI()
 app.add_middleware(
@@ -18,6 +19,8 @@ app.add_middleware(
 
 # include evaluation router
 app.include_router(eval_router)
+# include trainer chat router
+app.include_router(trainer_chat_router)
 
 processor = PushupProcessor()
 

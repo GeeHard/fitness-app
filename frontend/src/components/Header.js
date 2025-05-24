@@ -15,6 +15,7 @@ const Header = () => (
       <NavLink to='/pushups' className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>PushUp</NavLink>
       <NavLink to='/pushups_js' className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Pose JS</NavLink>
       <NavLink to='/eval' className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Eval</NavLink>
+      <NavLink to='/trainer_chat' className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Trainer Chat</NavLink>
     </nav>
   </header>
 );

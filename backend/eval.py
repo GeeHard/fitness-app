@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import io
 import base64
 from typing import Optional
+from Move_Eval_from_CSV import Move_Eval_from_CSV
 
 
 BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__))) 
@@ -61,7 +62,7 @@ def plot_diagram(df):
     ax.plot(df.index, df['knee'], color='black', label='Knee')
     ax.plot(df.index, df['shoulder'], color='red', label='Shoulder')
     ax.plot(df.index, df['elbow'], color='yellow', label='Elbow')
-    ax.set_xlabel('Video Frames')
+    ax.set_xlabel(f"{len(df)} Video Frames")
     ax.set_ylabel('Angle')
     ax.set_title("Joint Angles from Video")
     ax.legend()
@@ -92,6 +93,47 @@ async def get_plot_image(filename: Optional[str] = None):
             return {"image_base64": img_base64}
         except Exception as e:
             return {"error": f"Error plotting CSV: {e}"}
+    return {"error": "CSV file not found"}
+    
+@router.get("/move_eval")
+async def move_eval(filename: Optional[str] = None):
+    """
+    Endpoint for push-up move evaluation: returns evaluated DataFrame string and heatmap image (base64).
+    """
+    # Determine which CSV file to load
+    chosen = filename if filename else CSV_FILE
+    safe_name = os.path.basename(chosen)
+    file_path = os.path.join(BASE_PATH, safe_name)
+    if os.path.exists(file_path):
+        try:
+            df_local = pd.read_csv(file_path)
+            evaluator = Move_Eval_from_CSV(df_local)
+            # perform sequence evaluation to annotate rules and scores
+            df_eval = evaluator.evaluate_pushup_sequence()
+            # only show selected columns for preview
+            cols = [
+                "Körper in Linie",
+                "Ellbogenwinkel korrekt",
+                "Kopf neutral",
+                "Bewegungstiefe ausreichend",
+                "Kein Durchhängen im Rücken",
+                "Gleichmäßige Bewegung",
+                "Symmetrie",
+                "Score (max 7)"
+            ]
+            # subset DataFrame and serialize to string
+            df_subset = df_eval[cols]
+            # Speichere das Bewertungs-DataFrame als bewertung.csv und überschreibe bei jedem Aufruf
+            csv_out_path = os.path.join(BASE_PATH, 'bewertung.csv')
+            # Ersetze Leerzeichen in Spaltennamen durch Unterstriche für CSV-Header
+            df_csv = df_subset.rename(columns=lambda c: c.replace(' ', '_'))
+            df_csv.to_csv(csv_out_path, index=False)
+            eval_str = "Bewertung der Bewegung: \n\n" + df_subset.to_string()
+            # generate heatmap image
+            heatmap_b64 = evaluator.plot_heatmap()
+            return {"eval_df": eval_str, "heat_map_base64": heatmap_b64}
+        except Exception as e:
+            return {"error": f"Error in move evaluation: {e}"}
     return {"error": "CSV file not found"}
 
 

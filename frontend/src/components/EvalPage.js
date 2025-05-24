@@ -5,6 +5,8 @@ const EvalPage = () => {
   const [plotImage, setPlotImage] = useState('');
   const [csvFiles, setCsvFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState('');
+  const [evalData, setEvalData] = useState('');
+  const [heatmapImage, setHeatmapImage] = useState('');
 
   // Fetch list of available CSV files on mount
   useEffect(() => {
@@ -26,6 +28,14 @@ const EvalPage = () => {
       .then(res => res.json())
       .then(data => setPlotImage(data.image_base64 || ''))
       .catch(err => console.error('Error fetching plot image:', err));
+    // fetch move evaluation DataFrame and heatmap
+    fetch(`/move_eval${query}`)
+      .then(res => res.json())
+      .then(data => {
+        setEvalData(data.eval_df || data.error || '');
+        setHeatmapImage(data.heat_map_base64 || '');
+      })
+      .catch(err => console.error('Error fetching move eval:', err));
   }, [selectedFile]);
 
   return (
@@ -49,19 +59,45 @@ const EvalPage = () => {
         rows={10}
         readOnly
         style={{
-          width: '100%',
+          width: 'calc(100% - 200px)',
           fontSize: '16px',
           whiteSpace: 'pre',     // preserve text, disable wrapping
           overflowX: 'auto',     // horizontal scrollbar when needed
           overflowY: 'scroll',   // always show vertical scrollbar
+          margin: '20px auto',   // 100px left/right margins via auto centering
         }}
         value={message || 'Loading...'}
       />
+      {/* Plot of joint angles (between the two text fields) */}
       {plotImage && (
         <div style={{ padding: '20px' }}>
           <img
             src={`data:image/png;base64,${plotImage}`}
-            alt="Plot"
+            alt="Joint Angles Plot"
+            style={{ width: '100%' }}
+          />
+        </div>
+      )}
+      {/* Evaluated move DataFrame preview */}
+      <textarea
+        rows={10}
+        readOnly
+        style={{
+          width: 'calc(100% - 200px)',
+          fontSize: '16px',
+          whiteSpace: 'pre',
+          overflowX: 'auto',
+          overflowY: 'scroll',
+          margin: '20px auto',   // 100px left/right margins via auto centering
+        }}
+        value={evalData || 'Loading move evaluation...'}
+      />
+      {/* Heatmap of rule fulfillment */}
+      {heatmapImage && (
+        <div style={{ padding: '20px' }}>
+          <img
+            src={`data:image/png;base64,${heatmapImage}`}
+            alt="Heatmap of Rule Fulfillment"
             style={{ width: '100%' }}
           />
         </div>

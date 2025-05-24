@@ -6,6 +6,7 @@ import LandingPage from './components/LandingPage';
 import PushupsPage from './components/PushupsPage';
 import PushupsJsPage from './components/PushupsJsPage';
 import EvalPage from './components/EvalPage';
+import TrainerChatPage from './components/TrainerChatPage';
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
         <Route path='/pushups' element={<PushupsPage />} />
         <Route path='/pushups_js' element={<PushupsJsPage />} />
         <Route path='/eval' element={<EvalPage />} />
+        <Route path='/trainer_chat' element={<TrainerChatPage />} />
       </Routes>
     </div>
   );
